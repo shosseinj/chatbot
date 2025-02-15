@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Chatbot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            height: 100vh;
+            margin: 0;
+            background-color: #121212;
+            color: white;
+        }
+
+        .sidebar {
+            width: 250px;
+            background-color: #1E1E1E;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #333;
+        }
+
+        .room {
+            padding: 10px;
+            margin: 5px 0;
+            background: #333;
+            border-radius: 5px;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        .room:hover {
+            background: #444;
+        }
+
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .messages {
+            flex-grow: 1;
+            overflow-y: auto;
+            max-height: 80vh;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+        }
+
+        .message {
+            padding: 12px;
+            margin: 8px;
+            border-radius: 8px;
+            width: fit-content;
+            max-width: 75%; /* Allows larger messages to take up more space */
+            word-wrap: break-word;
+            white-space: normal;
+            font-size: 16px; /* Increased font size for better readability */
+            line-height: 1.5; /* More space between lines for better readability */
+            font-family: 'Arial', sans-serif; /* Choose a cleaner font family */
+        }
+
+        .user {
+            background: #007bff;
+            text-align: right;
+            margin-left: auto;
+            color: white; /* Ensures the user message text is visible */
+        }
+
+        .bot {
+            background: #333;
+            text-align: left;
+            margin-right: auto;
+            color: white; /* Ensures the bot message text is visible */
+        }
+
+
+
+
+        .input-container {
+            display: flex;
+            padding-top: 10px;
+        }
+
+        .input-container input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #444;
+            background: #222;
+            color: white;
+            border-radius: 5px;
+        }
+
+        .input-container button {
+            margin-left: 10px;
+            padding: 10px 15px;
+            background: #007bff;
+            border: none;
+            color: white;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+
+        .input-container button:hover {
+            background: #0056b3;
+        }
+
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            background: #333;
+            color: white;
+            text-align: center;
+            border-radius: 5px;
+            display: none;
+        }
+
+        .status.uploading {
+            background: #ffcc00;
+        }
+
+        .status.initializing {
+            background: #007bff;
+        }
+
+        .status.ready {
+            background: #28a745;
+        }
+
+        .status.error {
+            background: #dc3545;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar (Rooms) -->
+    <div class="sidebar">
+        <h3>PDF Rooms</h3>
+        <input type="file" id="pdfFile">
+        <button onclick="uploadPDF()">Upload</button>
+        <div id="roomList"></div>
+        <div id="status" class="status"></div>
+    </div>
+
+    <!-- Main Chat Section -->
+    <div class="chat-container">
+        <h2>PDF Chat</h2>
+        <div class="messages" id="chatHistory"></div>
+
+        <!-- Question Input -->
+        <div class="input-container">
+            <input type="text" id="questionInput" placeholder="Ask a question">
+            <button onclick="askQuestion()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        let assetId = null;
+        let currentRoom = null;
+        let chatHistory = {};
+
+        // Show Status
+        function updateStatus(message, statusClass) {
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = message;
+            statusElement.className = 'status ' + statusClass;
+            statusElement.style.display = 'block';
+        }
+
+        function uploadPDF() {
+            let fileInput = document.getElementById("pdfFile");
+            if (!fileInput.files.length) {
+                alert("Please select a file.");
+                return;
+            }
+
+            let file = fileInput.files[0];
+            if (file.type !== "application/pdf" && file.type !== "text/plain") {
+                alert("Please upload a valid PDF file.");
+                return;
+            }
+
+            let formData = new FormData();
+            formData.append("file", file);
+
+            let roomName = file.name.replace(/\.[^/.]+$/, "");
+            chatHistory[roomName] = [];
+
+            // Show uploading status
+            updateStatus("Uploading file...", "uploading");
+
+            fetch("http://127.0.0.1:5000/upload", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.asset_id) {
+                    assetId = data.asset_id;
+                    currentRoom = roomName;
+                    updateRoomList();
+                    switchRoom(roomName);
+
+                    // Show initializing status
+                    updateStatus("Initializing document...", "initializing");
+
+                    // After initialization is done, show ready status
+                    setTimeout(() => {
+                        updateStatus("Ready to Answer", "ready");
+                    }, 2000);
+                } else {
+                    updateStatus("Error uploading file", "error");
+                    alert("Error uploading file.");
+                }
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                updateStatus("Error uploading file", "error");
+            });
+        }
+
+        function updateRoomList() {
+            const roomList = document.getElementById("roomList");
+            roomList.innerHTML = Object.keys(chatHistory).map(room => 
+                `<div class="room" onclick="switchRoom('${room}')">${room}</div>`
+            ).join("");
+        }
+
+        function switchRoom(room) {
+            currentRoom = room;
+            document.getElementById("chatHistory").innerHTML = chatHistory[room]
+                .map(msg => `<div class="message ${msg.type}">${msg.text}</div>`)
+                .join("");
+        }
+
+        async function askQuestion() {
+            const questionInput = document.getElementById("questionInput");
+            const question = questionInput.value.trim();
+
+            if (question === "") {
+                alert("Please enter a question.");
+                return;
+            }
+
+            // Add user's question to the chat history
+            chatHistory[currentRoom].push({ type: "user", text: question });
+            updateChatHistory();
+
+            // Add the "Thinking..." message before sending the request
+            const thinkingMsg = { type: "bot", text: "<b>Thinking...</b><br>" };
+            chatHistory[currentRoom].push(thinkingMsg);
+            updateChatHistory();
+
+            // Clear the input field after submission
+            questionInput.value = "";
+
+            try {
+                // Send the question to the backend for processing
+                const response = await fetch("http://127.0.0.1:5000/ask", {
+                    method: "POST",  // POST request
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ asset_id: assetId, question: question })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let answerText = "";
+
+                // Remove the "Thinking..." message once we start receiving data
+                chatHistory[currentRoom] = chatHistory[currentRoom].filter(msg => msg.text !== "Thinking...");
+                updateChatHistory();
+
+                // Read the stream and append chunks as they are received
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    let chunk = decoder.decode(value, { stream: true });
+                    answerText += chunk;
+
+                    console.log("Received chunk:", chunk); // Log the chunk for debugging
+
+                    // Update the last bot message with the received chunk
+                    if (chatHistory[currentRoom].length > 0 && chatHistory[currentRoom].slice(-1)[0].type === "bot") {
+                        chatHistory[currentRoom].slice(-1)[0].text = answerText;
+                    } else {
+                        chatHistory[currentRoom].push({ type: "bot", text: answerText });
+                    }
+                    updateChatHistory();
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                alert("Error communicating with the backend.");
+            }
+        }
+
+
+
+
+        function updateChatHistory() {
+            const chatHistoryDiv = document.getElementById("chatHistory");
+            chatHistoryDiv.innerHTML = chatHistory[currentRoom]
+                .map(msg => `<div class="message ${msg.type}">${msg.text}</div>`)
+                .join("");
+
+            // Scroll to the latest message
+            chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+        }
+
+    </script>
+
+</body>
+</html>

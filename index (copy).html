@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Chatbot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            height: 100vh;
+            margin: 0;
+            background-color: #121212;
+            color: white;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            width: 250px;
+            background-color: #1E1E1E;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #333;
+        }
+
+        .room {
+            padding: 10px;
+            margin: 5px 0;
+            background: #333;
+            border-radius: 5px;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        .room:hover {
+            background: #444;
+        }
+
+        /* Chat Area */
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .messages {
+            flex-grow: 1;
+            overflow-y: auto;
+            max-height: 70vh;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+        }
+
+        .message {
+            padding: 10px;
+            margin: 5px;
+            border-radius: 5px;
+        }
+
+        .user {
+            background: #007bff;
+            text-align: right;
+        }
+
+        .bot {
+            background: #333;
+            text-align: left;
+        }
+
+        /* Input Section */
+        .input-container {
+            display: flex;
+            padding-top: 10px;
+        }
+
+        .input-container input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #444;
+            background: #222;
+            color: white;
+            border-radius: 5px;
+        }
+
+        .input-container button {
+            margin-left: 10px;
+            padding: 10px 15px;
+            background: #007bff;
+            border: none;
+            color: white;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+
+        .input-container button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar (Rooms) -->
+    <div class="sidebar">
+        <h3>PDF Rooms</h3>
+        <input type="file" id="pdfFile">
+        <button onclick="uploadPDF()">Upload</button>
+        <div id="roomList"></div>
+    </div>
+
+    <!-- Main Chat Section -->
+    <div class="chat-container">
+        <h2>PDF Chat</h2>
+        <div class="messages" id="chatHistory"></div>
+        
+        <!-- Question Input -->
+        <div class="input-container">
+            <input type="text" id="questionInput" placeholder="Ask a question">
+            <button onclick="askQuestion()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        let assetId = null;
+        let currentRoom = null;
+        let chatHistory = {};
+
+        function uploadPDF() {
+    let fileInput = document.getElementById("pdfFile");
+    if (!fileInput.files.length) {
+        alert("Please select a file.");
+        return;
+    }
+
+    let file = fileInput.files[0];
+    let formData = new FormData();
+    formData.append("file", file);
+
+    let roomName = file.name.replace(/\.[^/.]+$/, ""); // Extract filename without extension
+    chatHistory[roomName] = []; // Initialize chat history
+
+    fetch("http://127.0.0.1:5000/upload", {
+        method: "POST",
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.asset_id) {
+            assetId = data.asset_id;
+            currentRoom = roomName;
+            updateRoomList();
+            switchRoom(roomName);
+        } else {
+            alert("Error uploading file.");
+        }
+    })
+    .catch(error => console.error("Error:", error));
+}
+
+
+        function switchRoom(room) {
+            currentRoom = room;
+            document.getElementById("chatHistory").innerHTML = chatHistory[room]
+                .map(msg => `<div class="message ${msg.type}">${msg.text}</div>`)
+                .join("");
+        }
+
+        function askQuestion() {
+            let question = document.getElementById("questionInput").value;
+            if (!assetId) {
+                alert("Please upload a PDF first.");
+                return;
+            }
+
+            // Add user's message to history
+            chatHistory[currentRoom].push({ text: question, type: "user" });
+            updateChatHistory();
+
+            fetch("http://127.0.0.1:5000/ask", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ asset_id: assetId, question: question })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Add bot response to chat history
+                chatHistory[currentRoom].push({ text: data.answer, type: "bot" });
+                updateChatHistory();
+            })
+            .catch(error => console.error("Error:", error));
+        }
+
+        function updateChatHistory() {
+            document.getElementById("chatHistory").innerHTML = chatHistory[currentRoom]
+                .map(msg => `<div class="message ${msg.type}">${msg.text}</div>`)
+                .join("");
+        }
+    </script>
+
+</body>
+</html>
+
